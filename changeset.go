@@ -21,6 +21,7 @@
 package sqlitechangeset
 
 import (
+	"bytes"
 	"fmt"
 	"io"
 	"strings"
@@ -35,18 +36,27 @@ var opIndex = map[sqlite.OpType]int{
 	sqlite.SQLITE_DELETE: 2,
 }
 
+func SessionToSQL(conn *sqlite.Conn, sess *sqlite.Session) (sql string, err error) {
+	changeset := &bytes.Buffer{}
+	if err = sess.Changeset(changeset); err != nil {
+		return
+	}
+	return ToSQL(conn, changeset)
+}
+
 // ToSQL converts changeset, which may also be a patchset, into the equivalent
 // SQL statements. The column names are queried from the database connected to
 // by sqliteConn.
-func ToSQL(sqliteConn *sqlite.Conn, changeset io.Reader) (sql string, err error) {
-	conn := _Conn{Conn: sqliteConn, ColumnNames: make(map[string][]string)}
+func ToSQL(conn *sqlite.Conn, changeset io.Reader) (sql string, err error) {
+	Conn := _Conn{Conn: conn, ColumnNames: make(map[string][]string)}
 	iter, err := sqlite.ChangesetIterStart(changeset)
 	if err != nil {
 		return
 	}
 	defer iter.Finalize()
-	tableOps := [][][]string{}
+	// We later group all statements by table and operation.
 	tableIDs := map[string]int{}
+	tableOps := [][][]string{}
 	for {
 		var hasRow bool
 		hasRow, err = iter.Next()
@@ -63,7 +73,7 @@ func ToSQL(sqliteConn *sqlite.Conn, changeset io.Reader) (sql string, err error)
 			return
 		}
 		var sqlLine string
-		sqlLine, err = conn.BuildSQL(iter, tbl, op)
+		sqlLine, err = Conn.BuildSQL(iter, tbl, op)
 		if err != nil {
 			return
 		}
@@ -77,15 +87,18 @@ func ToSQL(sqliteConn *sqlite.Conn, changeset io.Reader) (sql string, err error)
 		tableOps[tblID][opID] = append(tableOps[tblID][opID], sqlLine)
 	}
 
+	// For each table...
 	for _, ops := range tableOps {
+		// For each op...
 		for _, op := range ops {
+			// Append each line.
 			for _, line := range op {
 				sql += line
 			}
 		}
 		sql += "\n"
 	}
-
+	sql = strings.TrimSuffix(sql, "\n")
 	return
 }
 
