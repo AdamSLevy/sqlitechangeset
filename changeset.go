@@ -154,38 +154,40 @@ func buildInsert(iter sqlite.ChangesetIter,
 
 func buildUpdate(iter sqlite.ChangesetIter,
 	tbl string, names []string) (string, error) {
-	const UPDATEF = `UPDATE "%s" SET (%s) = (%s) WHERE (%s) = (%s);
+	const UPDATEF = `UPDATE "%s" SET (%s) = (%s) WHERE (%s) = (%s); -- (%v)
 `
 	pk, err := iter.PK()
 	if err != nil {
 		return "", err
 	}
-	var setCols, setVals, pkCols, pkVals string
+	var setCols, setVals, oldVals, pkCols, pkVals string
 	for i, name := range names {
-		if pk[i] {
-			v, err := iter.Old(i)
-			if err != nil {
-				return "", err
-			}
-			pkCols += fmt.Sprintf(_COLUMNF, name) + _COMMA
-			pkVals += valueString(v) + _COMMA
-			continue
-		}
-		v, err := iter.New(i)
+		vOld, err := iter.Old(i)
 		if err != nil {
 			return "", err
 		}
-		if v.IsNil() {
+		if pk[i] {
+			pkCols += fmt.Sprintf(_COLUMNF, name) + _COMMA
+			pkVals += valueString(vOld) + _COMMA
+			continue
+		}
+		vNew, err := iter.New(i)
+		if err != nil {
+			return "", err
+		}
+		if vNew.IsNil() {
 			continue
 		}
 		setCols += fmt.Sprintf(_COLUMNF, name) + _COMMA
-		setVals += valueString(v) + _COMMA
+		setVals += valueString(vNew) + _COMMA
+		oldVals += valueString(vOld) + _COMMA
 	}
 	setCols = strings.TrimSuffix(setCols, _COMMA)
 	setVals = strings.TrimSuffix(setVals, _COMMA)
+	oldVals = strings.TrimSuffix(oldVals, _COMMA)
 	pkCols = strings.TrimSuffix(pkCols, _COMMA)
 	pkVals = strings.TrimSuffix(pkVals, _COMMA)
-	return fmt.Sprintf(UPDATEF, tbl, setCols, setVals, pkCols, pkVals), nil
+	return fmt.Sprintf(UPDATEF, tbl, setCols, setVals, pkCols, pkVals, oldVals), nil
 }
 
 func buildDelete(iter sqlite.ChangesetIter,
