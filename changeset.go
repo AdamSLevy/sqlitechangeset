@@ -27,8 +27,13 @@ import (
 
 	"crawshaw.io/sqlite"
 	"crawshaw.io/sqlite/sqlitex"
-	"github.com/Factom-Asset-Tokens/fatd/factom"
 )
+
+var opIndex = map[sqlite.OpType]int{
+	sqlite.SQLITE_INSERT: 0,
+	sqlite.SQLITE_UPDATE: 1,
+	sqlite.SQLITE_DELETE: 2,
+}
 
 // ToSQL converts changeset, which may also be a patchset, into the equivalent
 // SQL statements. The column names are queried from the database connected to
@@ -40,6 +45,8 @@ func ToSQL(sqliteConn *sqlite.Conn, changeset io.Reader) (sql string, err error)
 		return
 	}
 	defer iter.Finalize()
+	tableOps := [][][]string{}
+	tableIDs := map[string]int{}
 	for {
 		var hasRow bool
 		hasRow, err = iter.Next()
@@ -60,23 +67,27 @@ func ToSQL(sqliteConn *sqlite.Conn, changeset io.Reader) (sql string, err error)
 		if err != nil {
 			return
 		}
-		sql += sqlLine
+		tblID, ok := tableIDs[tbl]
+		if !ok {
+			tblID = len(tableOps)
+			tableIDs[tbl] = tblID
+			tableOps = append(tableOps, make([][]string, 3))
+		}
+		opID := opIndex[op]
+		tableOps[tblID][opID] = append(tableOps[tblID][opID], sqlLine)
 	}
+
+	for _, ops := range tableOps {
+		for _, op := range ops {
+			for _, line := range op {
+				sql += line
+			}
+		}
+		sql += "\n"
+	}
+
 	return
 }
-
-const (
-	_TABLE_INFOF = `PRAGMA TABLE_INFO('%s');`
-
-	_INSERTF = "INSERT INTO '%s' (%s) VALUES (%s);\n"
-	_UPDATEF = "UPDATE '%s' SET (%s) = (%s) WHERE (%s) = (%s);\n"
-	_DELETEF = "DELETE FROM '%s' WHERE (%s) = (%s);\n"
-
-	_COLUMNF = "'%s'"
-	_COMMA   = ", "
-)
-
-var sprintf = fmt.Sprintf
 
 type _Conn struct {
 	*sqlite.Conn
@@ -97,13 +108,20 @@ func (conn _Conn) BuildSQL(iter sqlite.ChangesetIter,
 	case sqlite.SQLITE_DELETE:
 		return buildDelete(iter, tbl, names)
 	default:
-		panic(sprintf("unsupported OpType: %v", op))
+		panic(fmt.Sprintf("unsupported OpType: %v", op))
 	}
 	return "", nil
 }
 
+const (
+	_COLUMNF = `"%s"`
+	_COMMA   = ", "
+)
+
 func buildInsert(iter sqlite.ChangesetIter,
 	tbl string, names []string) (string, error) {
+	const INSERTF = `INSERT INTO "%s" (%s) VALUES (%s);
+`
 	var cols, vals string
 	for i, name := range names {
 		v, err := iter.New(i)
@@ -113,16 +131,18 @@ func buildInsert(iter sqlite.ChangesetIter,
 		if v.IsNil() {
 			continue
 		}
-		cols += sprintf(_COLUMNF, name) + _COMMA
+		cols += fmt.Sprintf(_COLUMNF, name) + _COMMA
 		vals += valueString(v) + _COMMA
 	}
 	cols = strings.TrimSuffix(cols, _COMMA)
 	vals = strings.TrimSuffix(vals, _COMMA)
-	return sprintf(_INSERTF, tbl, cols, vals), nil
+	return fmt.Sprintf(INSERTF, tbl, cols, vals), nil
 }
 
 func buildUpdate(iter sqlite.ChangesetIter,
 	tbl string, names []string) (string, error) {
+	const UPDATEF = `UPDATE "%s" SET (%s) = (%s) WHERE (%s) = (%s);
+`
 	pk, err := iter.PK()
 	if err != nil {
 		return "", err
@@ -134,7 +154,7 @@ func buildUpdate(iter sqlite.ChangesetIter,
 			if err != nil {
 				return "", err
 			}
-			pkCols += sprintf(_COLUMNF, name) + _COMMA
+			pkCols += fmt.Sprintf(_COLUMNF, name) + _COMMA
 			pkVals += valueString(v) + _COMMA
 			continue
 		}
@@ -145,18 +165,20 @@ func buildUpdate(iter sqlite.ChangesetIter,
 		if v.IsNil() {
 			continue
 		}
-		setCols += sprintf(_COLUMNF, name) + _COMMA
+		setCols += fmt.Sprintf(_COLUMNF, name) + _COMMA
 		setVals += valueString(v) + _COMMA
 	}
 	setCols = strings.TrimSuffix(setCols, _COMMA)
 	setVals = strings.TrimSuffix(setVals, _COMMA)
 	pkCols = strings.TrimSuffix(pkCols, _COMMA)
 	pkVals = strings.TrimSuffix(pkVals, _COMMA)
-	return sprintf(_UPDATEF, tbl, setCols, setVals, pkCols, pkVals), nil
+	return fmt.Sprintf(UPDATEF, tbl, setCols, setVals, pkCols, pkVals), nil
 }
 
 func buildDelete(iter sqlite.ChangesetIter,
 	tbl string, names []string) (string, error) {
+	const DELETEF = `DELETE FROM "%s" WHERE (%s) = (%s);
+`
 	pk, err := iter.PK()
 	if err != nil {
 		return "", err
@@ -170,41 +192,39 @@ func buildDelete(iter sqlite.ChangesetIter,
 		if err != nil {
 			return "", err
 		}
-		pkCols += sprintf(_COLUMNF, name) + _COMMA
+		pkCols += fmt.Sprintf(_COLUMNF, name) + _COMMA
 		pkVals += valueString(v) + _COMMA
 	}
 	pkCols = strings.TrimSuffix(pkCols, _COMMA)
 	pkVals = strings.TrimSuffix(pkVals, _COMMA)
-	return sprintf(_DELETEF, tbl, pkCols, pkVals), nil
+	return fmt.Sprintf(DELETEF, tbl, pkCols, pkVals), nil
 }
-
-const _HEXF = "x'%v'"
-const _TEXTF = "%q"
 
 func valueString(val sqlite.Value) string {
 	valType := val.Type()
 	switch valType {
 	case sqlite.SQLITE_INTEGER:
-		return sprintf("%v", val.Int64())
+		return fmt.Sprintf("%v", val.Int64())
 	case sqlite.SQLITE_FLOAT:
-		return sprintf("%v", val.Float())
+		return fmt.Sprintf("%v", val.Float())
 	case sqlite.SQLITE_TEXT:
-		return sprintf(_TEXTF, val.Text())
+		return fmt.Sprintf("'%v'", strings.ReplaceAll(val.Text(), "'", "''"))
 	case sqlite.SQLITE_BLOB:
-		return sprintf(_HEXF, factom.Bytes(val.Blob()))
+		return fmt.Sprintf("x'%x'", val.Blob())
 	case sqlite.SQLITE_NULL:
 		return "NULL"
 	default:
-		panic(sprintf("unsupported ColumnType: %v", valType))
+		panic(fmt.Sprintf("unsupported ColumnType: %v", valType))
 	}
 }
 
 func (conn _Conn) GetColNames(tbl string) ([]string, error) {
+	const TABLE_INFOF = `PRAGMA TABLE_INFO("%s");`
 	colNames, ok := conn.ColumnNames[tbl]
 	if ok {
 		return colNames, nil
 	}
-	err := sqlitex.Exec(conn.Conn, sprintf(_TABLE_INFOF, tbl),
+	err := sqlitex.Exec(conn.Conn, fmt.Sprintf(TABLE_INFOF, tbl),
 		func(stmt *sqlite.Stmt) error {
 			colNames = append(colNames, stmt.ColumnText(1))
 			return nil
