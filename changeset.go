@@ -228,10 +228,10 @@ func valueString(val sqlite.Value) string {
 		return fmt.Sprintf("%v", val.Int64())
 	case sqlite.SQLITE_FLOAT:
 		return fmt.Sprintf("%v", val.Float())
+	case sqlite.SQLITE_BLOB:
+		return fmt.Sprintf("X'%X'", val.Blob())
 	case sqlite.SQLITE_TEXT:
 		return fmt.Sprintf("'%v'", strings.ReplaceAll(val.Text(), "'", "''"))
-	case sqlite.SQLITE_BLOB:
-		return fmt.Sprintf("x'%x'", val.Blob())
 	case sqlite.SQLITE_NULL:
 		return "NULL"
 	default:

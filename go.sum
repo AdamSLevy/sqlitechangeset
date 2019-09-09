@@ -1,7 +1,7 @@
 crawshaw.io/iox v0.0.0-20181124134642-c51c3df30797 h1:yDf7ARQc637HoxDho7xjqdvO5ZA2Yb+xzv/fOnnvZzw=
 crawshaw.io/iox v0.0.0-20181124134642-c51c3df30797/go.mod h1:sXBiorCo8c46JlQV3oXPKINnZ8mcqnye1EkVkqsectk=
-github.com/AdamSLevy/sqlite v0.1.3-0.20190729192944-6cbd592f144c h1:n+ha40YmIj3rnMvg4KkNUmPRHC+U0axIZFe51LVJdaM=
-github.com/AdamSLevy/sqlite v0.1.3-0.20190729192944-6cbd592f144c/go.mod h1:igAO5JulrQ1DbdZdtVq48mnZUBAPOeFzer7VhDWNtW4=
+github.com/AdamSLevy/sqlite v0.1.3-0.20190909223149-1ad299dae455 h1:f3m3JW4YkEDN62N036HWMFbLgT+wVgqd5UUunixT2PQ=
+github.com/AdamSLevy/sqlite v0.1.3-0.20190909223149-1ad299dae455/go.mod h1:igAO5JulrQ1DbdZdtVq48mnZUBAPOeFzer7VhDWNtW4=
 github.com/davecgh/go-spew v1.1.0 h1:ZDRjVQ15GmhC3fiQ8ni8+OwkZQO4DARzQgrnXU1Liz8=
 github.com/davecgh/go-spew v1.1.0/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
 github.com/davecgh/go-spew v1.1.1 h1:vj9j/u1bqnvCEfJOwUhtlOARqs3+rkHYY13jYWTU97c=
