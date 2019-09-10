@@ -30,6 +30,11 @@ import (
 	"crawshaw.io/sqlite/sqlitex"
 )
 
+// AlwaysUseBlob forces TEXT values to be encoded as hex, as a BLOB would be.
+// This was added to address a potential bug in sqlite that causes BLOBs to be
+// interpretted as TEXT.
+var AlwaysUseBlob bool
+
 var opIndex = map[sqlite.OpType]int{
 	sqlite.SQLITE_INSERT: 0,
 	sqlite.SQLITE_UPDATE: 1,
@@ -228,10 +233,13 @@ func valueString(val sqlite.Value) string {
 		return fmt.Sprintf("%v", val.Int64())
 	case sqlite.SQLITE_FLOAT:
 		return fmt.Sprintf("%v", val.Float())
+	case sqlite.SQLITE_TEXT:
+		if !AlwaysUseBlob {
+			return fmt.Sprintf("'%v'", strings.ReplaceAll(val.Text(), "'", "''"))
+		}
+		fallthrough
 	case sqlite.SQLITE_BLOB:
 		return fmt.Sprintf("X'%X'", val.Blob())
-	case sqlite.SQLITE_TEXT:
-		return fmt.Sprintf("'%v'", strings.ReplaceAll(val.Text(), "'", "''"))
 	case sqlite.SQLITE_NULL:
 		return "NULL"
 	default:
