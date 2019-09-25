@@ -80,9 +80,9 @@ func createChangeset(t *testing.T) (*sqlite.Conn, *sqlite.Session, io.Reader) {
                         a INTEGER PRIMARY KEY,
                         b BLOB
                 );
-                INSERT INTO t (a, b, c, d) VALUES (1, 1, "hello", 1.5);
-                INSERT INTO t (a, b, c, d) VALUES (2, 2, "world", 1.5);
-                INSERT INTO t (a, b, c, d) VALUES (5, 5, "world", 1.5);
+                INSERT INTO t (a, b, c, d) VALUES (1, 1, 'hello', 1.5);
+                INSERT INTO t (a, b, c, d) VALUES (2, 2, 'world', 1.5);
+                INSERT INTO t (a, b, c, d) VALUES (5, 5, 'world', 1.5);
                 INSERT INTO t2 (a, b) VALUES (1, x'01ff');
                 INSERT INTO t2 (a, b) VALUES (2, x'02ff');`))
 
@@ -92,9 +92,9 @@ func createChangeset(t *testing.T) (*sqlite.Conn, *sqlite.Session, io.Reader) {
 	require.NoError(sess.Attach(""), "sqlite.Session.Attach()")
 
 	require.NoError(sqlitex.ExecScript(conn, `
-                UPDATE t SET c = "hello world" WHERE a = 1 AND b = 1;
-                INSERT INTO t (a, b, c) VALUES (3, 3, "goodbye world");
-                UPDATE t SET (c,d) = ("world hello", 5.25) WHERE a = 2 AND b = 2;
+                UPDATE t SET c = 'hello world' WHERE a = 1 AND b = 1;
+                INSERT INTO t (a, b, c) VALUES (3, 3, 'goodbye world');
+                UPDATE t SET (c,d) = ('world hello', 5.25) WHERE a = 2 AND b = 2;
                 DELETE FROM t WHERE (a, b) = (5, 5);
                 INSERT INTO t (a, b, c) VALUES (4, 4, 'goodbye world''');
                 UPDATE t2 SET (a, b) = (0, x'ffffff') WHERE rowid = 1;
