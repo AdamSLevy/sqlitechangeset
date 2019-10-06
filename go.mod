@@ -8,4 +8,4 @@ require (
 	github.com/stretchr/testify v1.3.1-0.20190311161405-34c6fa2dc709
 )
 
-replace crawshaw.io/sqlite => github.com/AdamSLevy/sqlite v0.1.3-0.20190925021041-5f14912819e9
+replace crawshaw.io/sqlite => github.com/AdamSLevy/sqlite v0.1.3-0.20191006235146-265abd16c79e
