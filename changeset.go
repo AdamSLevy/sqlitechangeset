@@ -53,12 +53,16 @@ func SessionToSQL(conn *sqlite.Conn, sess *sqlite.Session) (sql string, err erro
 // SQL statements. The column names are queried from the database connected to
 // by sqliteConn.
 func ToSQL(conn *sqlite.Conn, changeset io.Reader) (sql string, err error) {
-	Conn := _Conn{Conn: conn, ColumnNames: make(map[string][]string)}
 	iter, err := sqlite.ChangesetIterStart(changeset)
 	if err != nil {
 		return
 	}
 	defer iter.Finalize()
+	return ChangesetIterToSQL(conn, iter)
+}
+
+func ChangesetIterToSQL(conn *sqlite.Conn, iter sqlite.ChangesetIter) (sql string, err error) {
+	Conn := _Conn{Conn: conn, ColumnNames: make(map[string][]string)}
 	// We later group all statements by table and operation.
 	tableIDs := map[string]int{}
 	tableOps := [][][]string{}
@@ -132,13 +136,13 @@ func (conn _Conn) BuildSQL(iter sqlite.ChangesetIter,
 }
 
 const (
-	_COLUMNF = `"%s"`
+	_COLUMNF = `%q`
 	_COMMA   = ", "
 )
 
 func buildInsert(iter sqlite.ChangesetIter,
 	tbl string, names []string) (string, error) {
-	const INSERTF = `INSERT INTO "%s" (%s) VALUES (%s);
+	const INSERTF = `INSERT INTO %q (%s) VALUES (%s);
 `
 	var cols, vals string
 	for i, name := range names {
@@ -149,7 +153,7 @@ func buildInsert(iter sqlite.ChangesetIter,
 		if v.IsNil() {
 			continue
 		}
-		cols += fmt.Sprintf(_COLUMNF, name) + _COMMA
+		cols += fmt.Sprintf(_COLUMNF+_COMMA, name)
 		vals += valueString(v) + _COMMA
 	}
 	cols = strings.TrimSuffix(cols, _COMMA)
@@ -159,7 +163,7 @@ func buildInsert(iter sqlite.ChangesetIter,
 
 func buildUpdate(iter sqlite.ChangesetIter,
 	tbl string, names []string) (string, error) {
-	const UPDATEF = `UPDATE "%s" SET (%s) = (%s) WHERE (%s) = (%s) /* (%v) */;
+	const UPDATEF = `UPDATE %q SET (%s) = (%s) WHERE (%s) = (%s) /* (%v) */;
 `
 	pk, err := iter.PK()
 	if err != nil {
@@ -197,7 +201,7 @@ func buildUpdate(iter sqlite.ChangesetIter,
 
 func buildDelete(iter sqlite.ChangesetIter,
 	tbl string, names []string) (string, error) {
-	const DELETEF = `DELETE FROM "%s" WHERE (%s) = (%s) /* (%v) = (%v) */;
+	const DELETEF = `DELETE FROM %q WHERE (%s) = (%s) /* (%v) = (%v) */;
 `
 	pk, err := iter.PK()
 	if err != nil {
