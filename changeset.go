@@ -58,11 +58,21 @@ func ToSQL(conn *sqlite.Conn, changeset io.Reader) (sql string, err error) {
 		return
 	}
 	defer iter.Finalize()
-	return ChangesetIterToSQL(conn, iter, false)
+	return ChangesetIterToSQL(conn, iter)
 }
 
-func ChangesetIterToSQL(conn *sqlite.Conn, iter sqlite.ChangesetIter,
-	conflict bool) (sql string, err error) {
+func ConflictChangesetIterToSQL(conn *sqlite.Conn, iter sqlite.ChangesetIter) (string, error) {
+	Conn := _Conn{Conn: conn, ColumnNames: make(map[string][]string)}
+	var tbl string
+	var op sqlite.OpType
+	tbl, _, op, _, err := iter.Op()
+	if err != nil {
+		return "", err
+	}
+	return Conn.BuildSQL(iter, tbl, op, true)
+}
+
+func ChangesetIterToSQL(conn *sqlite.Conn, iter sqlite.ChangesetIter) (sql string, err error) {
 	Conn := _Conn{Conn: conn, ColumnNames: make(map[string][]string)}
 	// We later group all statements by table and operation.
 	tableIDs := map[string]int{}
@@ -83,7 +93,7 @@ func ChangesetIterToSQL(conn *sqlite.Conn, iter sqlite.ChangesetIter,
 			return
 		}
 		var sqlLine string
-		sqlLine, err = Conn.BuildSQL(iter, tbl, op, conflict)
+		sqlLine, err = Conn.BuildSQL(iter, tbl, op, false)
 		if err != nil {
 			return
 		}
@@ -270,6 +280,9 @@ func buildDelete(iter sqlite.ChangesetIter,
 }
 
 func valueString(val sqlite.Value) string {
+	if val.IsNil() {
+		return "nil"
+	}
 	valType := val.Type()
 	switch valType {
 	case sqlite.SQLITE_INTEGER:
