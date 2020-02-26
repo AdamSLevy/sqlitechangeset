@@ -58,10 +58,11 @@ func ToSQL(conn *sqlite.Conn, changeset io.Reader) (sql string, err error) {
 		return
 	}
 	defer iter.Finalize()
-	return ChangesetIterToSQL(conn, iter)
+	return ChangesetIterToSQL(conn, iter, false)
 }
 
-func ChangesetIterToSQL(conn *sqlite.Conn, iter sqlite.ChangesetIter) (sql string, err error) {
+func ChangesetIterToSQL(conn *sqlite.Conn, iter sqlite.ChangesetIter,
+	conflict bool) (sql string, err error) {
 	Conn := _Conn{Conn: conn, ColumnNames: make(map[string][]string)}
 	// We later group all statements by table and operation.
 	tableIDs := map[string]int{}
@@ -82,7 +83,7 @@ func ChangesetIterToSQL(conn *sqlite.Conn, iter sqlite.ChangesetIter) (sql strin
 			return
 		}
 		var sqlLine string
-		sqlLine, err = Conn.BuildSQL(iter, tbl, op)
+		sqlLine, err = Conn.BuildSQL(iter, tbl, op, conflict)
 		if err != nil {
 			return
 		}
@@ -117,18 +118,18 @@ type _Conn struct {
 }
 
 func (conn _Conn) BuildSQL(iter sqlite.ChangesetIter,
-	tbl string, op sqlite.OpType) (string, error) {
+	tbl string, op sqlite.OpType, conflict bool) (string, error) {
 	names, err := conn.GetColNames(tbl)
 	if err != nil {
 		return "", err
 	}
 	switch op {
 	case sqlite.SQLITE_INSERT:
-		return buildInsert(iter, tbl, names)
+		return buildInsert(iter, tbl, names, conflict)
 	case sqlite.SQLITE_UPDATE:
-		return buildUpdate(iter, tbl, names)
+		return buildUpdate(iter, tbl, names, conflict)
 	case sqlite.SQLITE_DELETE:
-		return buildDelete(iter, tbl, names)
+		return buildDelete(iter, tbl, names, conflict)
 	default:
 		panic(fmt.Sprintf("unsupported OpType: %v", op))
 	}
@@ -141,35 +142,47 @@ const (
 )
 
 func buildInsert(iter sqlite.ChangesetIter,
-	tbl string, names []string) (string, error) {
-	const INSERTF = `INSERT INTO %q (%s) VALUES (%s);
+	tbl string, names []string, conflict bool) (string, error) {
+	const INSERTF = `INSERT INTO %q (%s) VALUES (%s)%s;
 `
-	var cols, vals string
+	var cols, vals, conf string
 	for i, name := range names {
 		v, err := iter.New(i)
 		if err != nil {
-			return "", nil
+			return "", err
 		}
 		if v.IsNil() {
 			continue
 		}
 		cols += fmt.Sprintf(_COLUMNF+_COMMA, name)
 		vals += valueString(v) + _COMMA
+		if !conflict {
+			continue
+		}
+		v, err = iter.Conflict(i)
+		if err != nil {
+			return "", err
+		}
+		conf += valueString(v) + _COMMA
 	}
 	cols = strings.TrimSuffix(cols, _COMMA)
 	vals = strings.TrimSuffix(vals, _COMMA)
-	return fmt.Sprintf(INSERTF, tbl, cols, vals), nil
+	if conflict {
+		conf = strings.TrimSuffix(conf, _COMMA)
+		conf = fmt.Sprintf(` /* conflict: (%s) */`, conf)
+	}
+	return fmt.Sprintf(INSERTF, tbl, cols, vals, conf), nil
 }
 
 func buildUpdate(iter sqlite.ChangesetIter,
-	tbl string, names []string) (string, error) {
-	const UPDATEF = `UPDATE %q SET (%s) = (%s) WHERE (%s) = (%s) /* (%v) */;
+	tbl string, names []string, conflict bool) (string, error) {
+	const UPDATEF = `UPDATE %q SET (%s) = (%s) WHERE (%s) = (%s) /* old: (%s) %s*/;
 `
 	pk, err := iter.PK()
 	if err != nil {
 		return "", err
 	}
-	var setCols, setVals, oldVals, pkCols, pkVals string
+	var setCols, setVals, oldVals, pkCols, pkVals, conf string
 	for i, name := range names {
 		vOld, err := iter.Old(i)
 		if err != nil {
@@ -190,18 +203,31 @@ func buildUpdate(iter sqlite.ChangesetIter,
 		setCols += fmt.Sprintf(_COLUMNF, name) + _COMMA
 		setVals += valueString(vNew) + _COMMA
 		oldVals += valueString(vOld) + _COMMA
+		if !conflict {
+			continue
+		}
+		v, err := iter.Conflict(i)
+		if err != nil {
+			return "", err
+		}
+		conf += valueString(v) + _COMMA
+
 	}
 	setCols = strings.TrimSuffix(setCols, _COMMA)
 	setVals = strings.TrimSuffix(setVals, _COMMA)
 	oldVals = strings.TrimSuffix(oldVals, _COMMA)
 	pkCols = strings.TrimSuffix(pkCols, _COMMA)
 	pkVals = strings.TrimSuffix(pkVals, _COMMA)
-	return fmt.Sprintf(UPDATEF, tbl, setCols, setVals, pkCols, pkVals, oldVals), nil
+	if conflict {
+		conf = strings.TrimSuffix(conf, _COMMA)
+		conf = fmt.Sprintf(`conflict: (%s) `, conf)
+	}
+	return fmt.Sprintf(UPDATEF, tbl, setCols, setVals, pkCols, pkVals, oldVals, conf), nil
 }
 
 func buildDelete(iter sqlite.ChangesetIter,
-	tbl string, names []string) (string, error) {
-	const DELETEF = `DELETE FROM %q WHERE (%s) = (%s) /* (%v) = (%v) */;
+	tbl string, names []string, conflict bool) (string, error) {
+	const DELETEF = `DELETE FROM %q WHERE (%s) = (%s) /* (%s) = (%s) %s*/;
 `
 	pk, err := iter.PK()
 	if err != nil {
@@ -209,6 +235,7 @@ func buildDelete(iter sqlite.ChangesetIter,
 	}
 	var pkCols, pkVals string
 	var oldCols, oldVals string
+	var conf string
 	for i, name := range names {
 		v, err := iter.Old(i)
 		if err != nil {
@@ -221,13 +248,25 @@ func buildDelete(iter sqlite.ChangesetIter,
 		}
 		oldCols += fmt.Sprintf(_COLUMNF, name) + _COMMA
 		oldVals += valueString(v) + _COMMA
+		if !conflict {
+			continue
+		}
+		v, err = iter.Conflict(i)
+		if err != nil {
+			return "", err
+		}
+		conf += valueString(v) + _COMMA
 
 	}
 	pkCols = strings.TrimSuffix(pkCols, _COMMA)
 	pkVals = strings.TrimSuffix(pkVals, _COMMA)
 	oldCols = strings.TrimSuffix(oldCols, _COMMA)
 	oldVals = strings.TrimSuffix(oldVals, _COMMA)
-	return fmt.Sprintf(DELETEF, tbl, pkCols, pkVals, oldCols, oldVals), nil
+	if conflict {
+		conf = strings.TrimSuffix(conf, _COMMA)
+		conf = fmt.Sprintf(`conflict: (%s) `, conf)
+	}
+	return fmt.Sprintf(DELETEF, tbl, pkCols, pkVals, oldCols, oldVals, conf), nil
 }
 
 func valueString(val sqlite.Value) string {
